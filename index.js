@@ -6,7 +6,7 @@ const token = "8344521445:AAEQOldx12LoMOji6YfC91omb058bN5t-MY"; // توکن رو
 const bot = new TelegramBot(token);
 
 // دامنه سرویس روی Render رو مستقیم اینجا بنویس
-const url = "https://your-app-name.onrender.com";
+const url = "https://dongbot-1.onrender.com";
 
 // تنظیم Webhook
 bot.setWebHook(`${url}/bot${token}`);
