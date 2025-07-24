@@ -4,7 +4,7 @@ const app = express();
 
 const token = "8344521445:AAEQOldx12LoMOji6YfC91omb058bN5t-MY";
 const bot = new TelegramBot(token);
-bot.setWebHook(`https://dongbot-1.onrender.com/bot${token}`);
+bot.setWebHook(`https://YOUR_RENDER_APP_URL/bot${token}`);
 
 app.use(express.json());
 
@@ -26,12 +26,11 @@ bot.onText(/\/start/, (msg) => {
     step: "waiting_count",
     names: [],
     costs: [],
-    editingIndex: null, // برای نگهداری شماره هزینه‌ای که میخوایم ویرایش کنیم
   });
 
   bot.sendMessage(
     chatId,
-    "سلام به ربات دُنگ‌ باز خوش اومدین! 👋\n\nچند نفر هستید؟"
+    "سلام به ربات دُنگ‌باز خوش اومدین! 👋\n\nچند نفر هستید؟"
   );
 });
 
@@ -45,13 +44,13 @@ bot.on("message", (msg) => {
 
   // اگر الان در مرحله ویرایش هزینه هستیم
   if (session.step === "editing_cost") {
-    // ورودی جدید هزینه رو دریافت می‌کنیم و جایگزین می‌کنیم
     const parts = text.split("-");
     if (parts.length < 4)
       return bot.sendMessage(chatId, "فرمت نادرسته. با الگو مطابقت نداره.");
 
     const [payer, reason, amountText, ...users] = parts;
     const amount = parseInt(toEnDigits(amountText));
+
     if (!session.names.includes(payer))
       return bot.sendMessage(
         chatId,
@@ -65,17 +64,7 @@ bot.on("message", (msg) => {
     if (isNaN(amount))
       return bot.sendMessage(chatId, `مقدار پرداختی معتبر نیست`);
 
-    // جایگزینی هزینه قبلی
-    if (
-      session.editingIndex === null ||
-      session.editingIndex < 0 ||
-      session.editingIndex >= session.costs.length
-    ) {
-      session.step = "waiting_costs";
-      session.editingIndex = null;
-      return bot.sendMessage(chatId, "شماره هزینه نامعتبر است، ویرایش لغو شد.");
-    }
-
+    // جایگزینی هزینه و برگشت به waiting_costs
     session.costs[session.editingIndex] = {
       payer,
       reason,
@@ -87,14 +76,23 @@ bot.on("message", (msg) => {
       chatId,
       `✅ هزینه شماره ${
         session.editingIndex + 1
-      } ویرایش شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
+      } با موفقیت ویرایش شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
         "، "
       )}`
     );
 
-    // برگشت به مرحله دریافت هزینه‌ها
     session.step = "waiting_costs";
-    session.editingIndex = null;
+    delete session.editingIndex;
+
+    // نمایش دکمه‌ها
+    bot.sendMessage(chatId, "ادامه دهید یا دکمه‌ها را انتخاب کنید:", {
+      reply_markup: {
+        keyboard: [["📋 نمایش همه هزینه‌ها", "✏️ ویرایش هزینه"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+
     return;
   }
 
@@ -128,7 +126,14 @@ bot.on("message", (msg) => {
         chatId,
         `✅ افراد: ${session.names.join(
           " - "
-        )}\n\nالان هزینه‌ها رو با فرمت زیر وارد کن:\n\nنام پرداخت‌کننده - دلیل - مقدار پرداختی - استفاده‌کننده‌ها\n\nمثال:\nشایان-شام-10000-امیر-کسرا-شایان-شاهین\n\nبرای پایان، بنویس: پایان`
+        )}\n\nالان هزینه‌ها رو با فرمت زیر وارد کن:\n\nنام پرداخت‌کننده - دلیل - مقدار پرداختی - استفاده‌کننده‌ها\n\nمثال:\nشایان-شام-10000-امیر-کسرا-شایان-شاهین\n\nبرای پایان، بنویس: پایان`,
+        {
+          reply_markup: {
+            keyboard: [["📋 نمایش همه هزینه‌ها", "✏️ ویرایش هزینه"]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        }
       );
     }
     return;
@@ -136,10 +141,36 @@ bot.on("message", (msg) => {
 
   // مرحله گرفتن هزینه‌ها
   if (session.step === "waiting_costs") {
+    // دکمه‌ها در این مرحله
+    if (textRaw === "📋 نمایش همه هزینه‌ها") {
+      if (!session.costs.length) {
+        return bot.sendMessage(chatId, "هنوز هزینه‌ای ثبت نشده.");
+      }
+      let textOut = "📋 لیست هزینه‌ها:\n\n";
+      session.costs.forEach((c, i) => {
+        textOut += `${i + 1}. 💳 پرداخت‌کننده: ${c.payer}\n📌 دلیل: ${
+          c.reason
+        }\n💰 مبلغ: ${c.amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${c.users.join(
+          "، "
+        )}\n\n`;
+      });
+      return bot.sendMessage(chatId, textOut.trim());
+    }
+
+    if (textRaw === "✏️ ویرایش هزینه") {
+      if (!session.costs.length) {
+        return bot.sendMessage(chatId, "هیچ هزینه‌ای برای ویرایش ثبت نشده.");
+      }
+      session.step = "waiting_edit_index";
+      return bot.sendMessage(
+        chatId,
+        "شماره هزینه‌ای که می‌خوای ویرایش کنی رو وارد کن:"
+      );
+    }
+
     if (text === "پایان") {
       session.step = "done";
 
-      // دکمه‌ها: نمایش همه هزینه‌ها + ویرایش هزینه
       bot.sendMessage(chatId, "نتایج محاسبه شد:", {
         reply_markup: {
           keyboard: [["📋 نمایش همه هزینه‌ها", "✏️ ویرایش هزینه"]],
@@ -151,6 +182,7 @@ bot.on("message", (msg) => {
       return calcAndSend(chatId, session);
     }
 
+    // اگر ورودی هزینه هست
     const parts = text.split("-");
     if (parts.length < 4)
       return bot.sendMessage(chatId, "فرمت نادرسته. با الگو مطابقت نداره.");
@@ -177,46 +209,23 @@ bot.on("message", (msg) => {
       users,
     });
 
+    // پیام ثبت با شماره هزینه
     bot.sendMessage(
       chatId,
-      `✅ ثبت شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
+      `✅ ثبت شد (هزینه شماره ${
+        session.costs.length
+      }):\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
         "، "
-      )}`
+      )}`,
+      {
+        reply_markup: {
+          keyboard: [["📋 نمایش همه هزینه‌ها", "✏️ ویرایش هزینه"]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      }
     );
     return;
-  }
-
-  // اگر مرحله پایان هست و دکمه‌ها زده شد
-  if (session.step === "done") {
-    if (textRaw === "📋 نمایش همه هزینه‌ها") {
-      if (!session.costs.length) {
-        return bot.sendMessage(chatId, "هنوز هزینه‌ای ثبت نشده.");
-      }
-
-      let textOut = "📋 لیست هزینه‌ها:\n\n";
-      session.costs.forEach((c, i) => {
-        textOut += `${i + 1}. 💳 پرداخت‌کننده: ${c.payer}\n📌 دلیل: ${
-          c.reason
-        }\n💰 مبلغ: ${c.amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${c.users.join(
-          "، "
-        )}\n\n`;
-      });
-
-      bot.sendMessage(chatId, textOut.trim());
-      return;
-    }
-
-    if (textRaw === "✏️ ویرایش هزینه") {
-      if (!session.costs.length) {
-        return bot.sendMessage(chatId, "هیچ هزینه‌ای برای ویرایش ثبت نشده.");
-      }
-      session.step = "waiting_edit_index";
-      bot.sendMessage(
-        chatId,
-        "شماره هزینه‌ای که می‌خوای ویرایش کنی رو وارد کن:"
-      );
-      return;
-    }
   }
 
   // مرحله گرفتن شماره هزینه برای ویرایش
@@ -225,14 +234,40 @@ bot.on("message", (msg) => {
     if (isNaN(idx) || idx < 0 || idx >= session.costs.length) {
       return bot.sendMessage(chatId, "شماره نامعتبره، دوباره وارد کن:");
     }
-
     session.editingIndex = idx;
     session.step = "editing_cost";
-
-    bot.sendMessage(
+    return bot.sendMessage(
       chatId,
       `حالا هزینه جدید رو با فرمت زیر وارد کن:\nنام پرداخت‌کننده - دلیل - مقدار پرداختی - استفاده‌کننده‌ها\nمثال:\nشایان-شام-10000-امیر-کسرا-شایان-شاهین`
     );
+  }
+
+  // مرحله پایان و دکمه‌ها
+  if (session.step === "done") {
+    if (textRaw === "📋 نمایش همه هزینه‌ها") {
+      if (!session.costs.length) {
+        return bot.sendMessage(chatId, "هنوز هزینه‌ای ثبت نشده.");
+      }
+      let textOut = "📋 لیست هزینه‌ها:\n\n";
+      session.costs.forEach((c, i) => {
+        textOut += `${i + 1}. 💳 پرداخت‌کننده: ${c.payer}\n📌 دلیل: ${
+          c.reason
+        }\n💰 مبلغ: ${c.amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${c.users.join(
+          "، "
+        )}\n\n`;
+      });
+      return bot.sendMessage(chatId, textOut.trim());
+    }
+    if (textRaw === "✏️ ویرایش هزینه") {
+      if (!session.costs.length) {
+        return bot.sendMessage(chatId, "هیچ هزینه‌ای برای ویرایش ثبت نشده.");
+      }
+      session.step = "waiting_edit_index";
+      return bot.sendMessage(
+        chatId,
+        "شماره هزینه‌ای که می‌خوای ویرایش کنی رو وارد کن:"
+      );
+    }
   }
 });
 
@@ -300,8 +335,4 @@ function calcAndSend(chatId, session) {
   bot.sendMessage(chatId, final);
 }
 
-// اجرا
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log("Bot is running on port", port);
-});
+//
