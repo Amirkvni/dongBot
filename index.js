@@ -13,9 +13,9 @@ app.post(`/bot${token}`, (req, res) => {
   res.sendStatus(200);
 });
 
+// ==== ربات اصلی ====
 const sessions = new Map();
 
-// تبدیل اعداد فارسی به انگلیسی
 function toEnDigits(str) {
   return str.replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
 }
@@ -37,18 +37,15 @@ bot.onText(/\/start/, (msg) => {
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
   const session = sessions.get(chatId);
-  if (!session) return;
-  if (msg.text.startsWith("/start")) return; // برای جلوگیری از تداخل
+  if (!session || msg.text.startsWith("/start")) return;
 
   const text = toEnDigits(msg.text.trim());
 
+  // مرحله گرفتن تعداد نفرات
   if (session.step === "waiting_count") {
     const count = parseInt(text);
     if (isNaN(count) || count < 1)
-      return bot.sendMessage(
-        chatId,
-        "تعداد نامعتبره. لطفاً عددی صحیح وارد کن."
-      );
+      return bot.sendMessage(chatId, "تعداد نامعتبره. یه عدد بفرست");
 
     session.totalCount = count;
     session.step = "waiting_names";
@@ -57,9 +54,10 @@ bot.on("message", (msg) => {
     return;
   }
 
+  // مرحله گرفتن اسامی
   if (session.step === "waiting_names") {
     if (session.names.includes(text))
-      return bot.sendMessage(chatId, "اسم تکراریه، لطفاً یه اسم دیگه وارد کن.");
+      return bot.sendMessage(chatId, "اسم تکراریه، یه اسم دیگه وارد کن");
 
     session.names.push(text);
 
@@ -75,67 +73,35 @@ bot.on("message", (msg) => {
           " - "
         )}\n\nالان هزینه‌ها رو با فرمت زیر وارد کن:\n\nنام پرداخت‌کننده - دلیل - مقدار پرداختی - استفاده‌کننده‌ها\n\nمثال:\nشایان-شام-10000-امیر-کسرا-شایان-شاهین\n\nبرای پایان، بنویس: پایان`
       );
-
-      // دکمه نمایش همه هزینه‌ها
-      bot.sendMessage(chatId, "برای دیدن همه هزینه‌ها روی دکمه زیر بزن:", {
-        reply_markup: {
-          keyboard: [["نمایش همه هزینه‌ها"]],
-          resize_keyboard: true,
-          one_time_keyboard: false,
-        },
-      });
     }
     return;
   }
 
+  // مرحله گرفتن هزینه‌ها
   if (session.step === "waiting_costs") {
     if (text === "پایان") {
       session.step = "done";
-      bot.sendMessage(
-        chatId,
-        "ورود هزینه‌ها پایان یافت. می‌تونی با دکمه‌ها کار رو ادامه بدی."
-      );
-      return;
+      return calcAndSend(chatId, session);
     }
 
-    if (text === "نمایش همه هزینه‌ها") {
-      if (!session.costs || session.costs.length === 0) {
-        bot.sendMessage(chatId, "هیچ هزینه‌ای ثبت نشده.");
-        return;
-      }
-
-      session.costs.forEach((cost) => {
-        const msgText = `💳 پرداخت‌کننده: ${cost.payer}
-📌 دلیل: ${cost.reason}
-💰 مبلغ: ${Number(cost.amount).toLocaleString("fa-IR")} تومان
-👥 استفاده‌کننده‌ها: ${cost.users.join("، ")}`;
-        bot.sendMessage(chatId, msgText);
-      });
-      return;
-    }
-
-    // ثبت هزینه جدید
     const parts = text.split("-");
     if (parts.length < 4)
-      return bot.sendMessage(
-        chatId,
-        "فرمت نادرسته. فرمت صحیح:\nنام پرداخت‌کننده - دلیل - مبلغ - استفاده‌کننده‌ها"
-      );
+      return bot.sendMessage(chatId, "فرمت نادرسته. با الگو مطابقت نداره.");
 
     const [payer, reason, amountText, ...users] = parts;
     const amount = parseInt(toEnDigits(amountText));
     if (!session.names.includes(payer))
       return bot.sendMessage(
         chatId,
-        `نام پرداخت‌کننده '${payer}' توی لیست نیست.`
+        `نام پرداخت‌کننده '${payer}' توی لیست نیست`
       );
     if (users.some((u) => !session.names.includes(u)))
       return bot.sendMessage(
         chatId,
-        `یه یا چند نفر از استفاده‌کننده‌ها توی لیست نیستن.`
+        `یه یا چند نفر از استفاده‌کننده‌ها توی لیست نیستن`
       );
     if (isNaN(amount))
-      return bot.sendMessage(chatId, `مقدار پرداختی معتبر نیست.`);
+      return bot.sendMessage(chatId, `مقدار پرداختی معتبر نیست`);
 
     session.costs.push({
       payer,
@@ -144,38 +110,77 @@ bot.on("message", (msg) => {
       users,
     });
 
-    bot.sendMessage(
-      chatId,
-      `✅ هزینه ثبت شد:
-💳 پرداخت‌کننده: ${payer}
-📌 دلیل: ${reason}
-💰 مبلغ: ${Number(amount).toLocaleString("fa-IR")} تومان
-👥 استفاده‌کننده‌ها: ${users.join("، ")}`
-    );
+    bot.sendMessage(chatId, `✅ ثبت شد. هزینه‌ی "${reason}" توسط ${payer}`);
     return;
-  }
-
-  if (session.step === "done") {
-    if (text === "نمایش همه هزینه‌ها") {
-      if (!session.costs || session.costs.length === 0) {
-        bot.sendMessage(chatId, "هیچ هزینه‌ای ثبت نشده.");
-        return;
-      }
-
-      session.costs.forEach((cost) => {
-        const msgText = `💳 پرداخت‌کننده: ${cost.payer}
-📌 دلیل: ${cost.reason}
-💰 مبلغ: ${Number(cost.amount).toLocaleString("fa-IR")} تومان
-👥 استفاده‌کننده‌ها: ${cost.users.join("، ")}`;
-        bot.sendMessage(chatId, msgText);
-      });
-      return;
-    }
-
-    bot.sendMessage(chatId, "اگر می‌خوای دوباره شروع کنی /start بزن.");
   }
 });
 
+// محاسبه پرداخت‌ها و بدهکاری‌ها
+function calcAndSend(chatId, session) {
+  const debtMap = {}; // {from: {to: amount}}
+  const paidTotal = {}; // {name: total_paid}
+  const usedTotal = {}; // {name: total_used}
+
+  session.names.forEach((name) => {
+    debtMap[name] = {};
+    paidTotal[name] = 0;
+    usedTotal[name] = 0;
+    session.names.forEach((other) => {
+      if (other !== name) debtMap[name][other] = 0;
+    });
+  });
+
+  for (const cost of session.costs) {
+    const share = cost.amount / cost.users.length;
+    paidTotal[cost.payer] += cost.amount;
+    for (const u of cost.users) {
+      usedTotal[u] += share;
+      if (u !== cost.payer) {
+        debtMap[u][cost.payer] += share;
+      }
+    }
+  }
+
+  let final = `💰 نتیجه محاسبات:\n\n`;
+  session.names.forEach((from) => {
+    session.names.forEach((to) => {
+      if (from !== to) {
+        const pay = debtMap[from][to] - debtMap[to][from];
+        if (pay > 0) {
+          final += `🔸 ${from} باید ${pay.toFixed(0)} تومان به ${to} بدهد\n`;
+        }
+      }
+    });
+  });
+
+  // اگر هیچ بدهی نداشتن
+  if (final.trim() === "💰 نتیجه محاسبات:") {
+    final += "هیچ پرداختی لازم نیست 😊\n";
+  }
+
+  // اضافه کردن گزارش پرداختی‌ها و بدهکاری‌ها
+  final += `\n📊 گزارش پرداختی‌ها و بدهکاری‌ها:\n`;
+  session.names.forEach((name) => {
+    const paid = paidTotal[name];
+    const used = usedTotal[name];
+    const diff = paid - used;
+
+    const status =
+      diff > 0
+        ? `طلبکار ${diff.toFixed(0)} تومان`
+        : diff < 0
+        ? `بدهکار ${(diff * -1).toFixed(0)} تومان`
+        : "تسویه شده ✅";
+
+    final += `▪️ ${name}: پرداختی ${paid.toFixed(0)} تومان - سهم ${used.toFixed(
+      0
+    )} تومان → ${status}\n`;
+  });
+
+  bot.sendMessage(chatId, final);
+}
+
+// اجرا
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log("Bot is running on port", port);
