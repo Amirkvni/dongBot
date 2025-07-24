@@ -335,4 +335,8 @@ function calcAndSend(chatId, session) {
   bot.sendMessage(chatId, final);
 }
 
-//
+// اجرا
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log("Bot is running on port", port);
+});
