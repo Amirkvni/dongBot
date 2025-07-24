@@ -2,7 +2,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const app = express();
 
-const token = "توکن_ربات_تو"; // اینجا توکن خودتو بذار
+const token = "8344521445:AAEQOldx12LoMOji6YfC91omb058bN5t-MY";
 const bot = new TelegramBot(token);
 const url = "https://dongbot-1.onrender.com";
 bot.setWebHook(`${url}/bot${token}`);
