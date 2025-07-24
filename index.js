@@ -81,6 +81,16 @@ bot.on("message", (msg) => {
   if (session.step === "waiting_costs") {
     if (text === "پایان") {
       session.step = "done";
+
+      // دکمه نمایش همه هزینه‌ها
+      bot.sendMessage(chatId, "نتایج محاسبه شد:", {
+        reply_markup: {
+          keyboard: [["📋 نمایش همه هزینه‌ها"]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+
       return calcAndSend(chatId, session);
     }
 
@@ -110,16 +120,40 @@ bot.on("message", (msg) => {
       users,
     });
 
-    bot.sendMessage(chatId, `✅ ثبت شد. هزینه‌ی "${reason}" توسط ${payer}`);
+    bot.sendMessage(
+      chatId,
+      `✅ هزینه ثبت شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
+        "، "
+      )}`
+    );
+    return;
+  }
+
+  // اگر مرحله پایان هست و دکمه "نمایش همه هزینه‌ها" زده شد
+  if (session.step === "done" && msg.text === "📋 نمایش همه هزینه‌ها") {
+    if (!session.costs.length) {
+      return bot.sendMessage(chatId, "هنوز هزینه‌ای ثبت نشده.");
+    }
+
+    let text = "📋 لیست هزینه‌ها:\n\n";
+    for (const c of session.costs) {
+      text += `💳 پرداخت‌کننده: ${c.payer}\n📌 دلیل: ${
+        c.reason
+      }\n💰 مبلغ: ${c.amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${c.users.join(
+        "، "
+      )}\n\n`;
+    }
+
+    bot.sendMessage(chatId, text.trim());
     return;
   }
 });
 
 // محاسبه پرداخت‌ها و بدهکاری‌ها
 function calcAndSend(chatId, session) {
-  const debtMap = {}; // {from: {to: amount}}
-  const paidTotal = {}; // {name: total_paid}
-  const usedTotal = {}; // {name: total_used}
+  const debtMap = {};
+  const paidTotal = {};
+  const usedTotal = {};
 
   session.names.forEach((name) => {
     debtMap[name] = {};
@@ -153,12 +187,11 @@ function calcAndSend(chatId, session) {
     });
   });
 
-  // اگر هیچ بدهی نداشتن
   if (final.trim() === "💰 نتیجه محاسبات:") {
     final += "هیچ پرداختی لازم نیست 😊\n";
   }
 
-  // اضافه کردن گزارش پرداختی‌ها و بدهکاری‌ها
+  // گزارش کلی
   final += `\n📊 گزارش پرداختی‌ها و بدهکاری‌ها:\n`;
   session.names.forEach((name) => {
     const paid = paidTotal[name];
@@ -172,9 +205,9 @@ function calcAndSend(chatId, session) {
         ? `بدهکار ${(diff * -1).toFixed(0)} تومان`
         : "تسویه شده ✅";
 
-    final += `▪️ ${name}: پرداختی ${paid.toFixed(0)} تومان - سهم ${used.toFixed(
+    final += `▪️ ${name}: پرداختی ${paid.toFixed(0)} - سهم ${used.toFixed(
       0
-    )} تومان → ${status}\n`;
+    )} → ${status}\n`;
   });
 
   bot.sendMessage(chatId, final);
