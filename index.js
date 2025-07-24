@@ -2,7 +2,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const app = express();
 
-const token = "8344521445:AAEQOldx12LoMOji6YfC91omb058bN5t-MY";
+const token = "YOUR_BOT_TOKEN";
 const bot = new TelegramBot(token);
 bot.setWebHook(`https://dongbot-1.onrender.com/bot${token}`);
 
@@ -26,6 +26,7 @@ bot.onText(/\/start/, (msg) => {
     step: "waiting_count",
     names: [],
     costs: [],
+    editingIndex: null, // برای نگهداری شماره هزینه‌ای که میخوایم ویرایش کنیم
   });
 
   bot.sendMessage(
@@ -39,7 +40,63 @@ bot.on("message", (msg) => {
   const session = sessions.get(chatId);
   if (!session || msg.text.startsWith("/start")) return;
 
-  const text = toEnDigits(msg.text.trim());
+  const textRaw = msg.text.trim();
+  const text = toEnDigits(textRaw);
+
+  // اگر الان در مرحله ویرایش هزینه هستیم
+  if (session.step === "editing_cost") {
+    // ورودی جدید هزینه رو دریافت می‌کنیم و جایگزین می‌کنیم
+    const parts = text.split("-");
+    if (parts.length < 4)
+      return bot.sendMessage(chatId, "فرمت نادرسته. با الگو مطابقت نداره.");
+
+    const [payer, reason, amountText, ...users] = parts;
+    const amount = parseInt(toEnDigits(amountText));
+    if (!session.names.includes(payer))
+      return bot.sendMessage(
+        chatId,
+        `نام پرداخت‌کننده '${payer}' توی لیست نیست`
+      );
+    if (users.some((u) => !session.names.includes(u)))
+      return bot.sendMessage(
+        chatId,
+        `یه یا چند نفر از استفاده‌کننده‌ها توی لیست نیستن`
+      );
+    if (isNaN(amount))
+      return bot.sendMessage(chatId, `مقدار پرداختی معتبر نیست`);
+
+    // جایگزینی هزینه قبلی
+    if (
+      session.editingIndex === null ||
+      session.editingIndex < 0 ||
+      session.editingIndex >= session.costs.length
+    ) {
+      session.step = "waiting_costs";
+      session.editingIndex = null;
+      return bot.sendMessage(chatId, "شماره هزینه نامعتبر است، ویرایش لغو شد.");
+    }
+
+    session.costs[session.editingIndex] = {
+      payer,
+      reason,
+      amount,
+      users,
+    };
+
+    bot.sendMessage(
+      chatId,
+      `✅ هزینه شماره ${
+        session.editingIndex + 1
+      } ویرایش شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
+        "، "
+      )}`
+    );
+
+    // برگشت به مرحله دریافت هزینه‌ها
+    session.step = "waiting_costs";
+    session.editingIndex = null;
+    return;
+  }
 
   // مرحله گرفتن تعداد نفرات
   if (session.step === "waiting_count") {
@@ -82,10 +139,10 @@ bot.on("message", (msg) => {
     if (text === "پایان") {
       session.step = "done";
 
-      // دکمه نمایش همه هزینه‌ها
+      // دکمه‌ها: نمایش همه هزینه‌ها + ویرایش هزینه
       bot.sendMessage(chatId, "نتایج محاسبه شد:", {
         reply_markup: {
-          keyboard: [["📋 نمایش همه هزینه‌ها"]],
+          keyboard: [["📋 نمایش همه هزینه‌ها", "✏️ ویرایش هزینه"]],
           resize_keyboard: true,
           one_time_keyboard: true,
         },
@@ -122,30 +179,60 @@ bot.on("message", (msg) => {
 
     bot.sendMessage(
       chatId,
-      `✅ هزینه ثبت شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
+      `✅ ثبت شد:\n💳 پرداخت‌کننده: ${payer}\n📌 دلیل: ${reason}\n💰 مبلغ: ${amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${users.join(
         "، "
       )}`
     );
     return;
   }
 
-  // اگر مرحله پایان هست و دکمه "نمایش همه هزینه‌ها" زده شد
-  if (session.step === "done" && msg.text === "📋 نمایش همه هزینه‌ها") {
-    if (!session.costs.length) {
-      return bot.sendMessage(chatId, "هنوز هزینه‌ای ثبت نشده.");
+  // اگر مرحله پایان هست و دکمه‌ها زده شد
+  if (session.step === "done") {
+    if (textRaw === "📋 نمایش همه هزینه‌ها") {
+      if (!session.costs.length) {
+        return bot.sendMessage(chatId, "هنوز هزینه‌ای ثبت نشده.");
+      }
+
+      let textOut = "📋 لیست هزینه‌ها:\n\n";
+      session.costs.forEach((c, i) => {
+        textOut += `${i + 1}. 💳 پرداخت‌کننده: ${c.payer}\n📌 دلیل: ${
+          c.reason
+        }\n💰 مبلغ: ${c.amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${c.users.join(
+          "، "
+        )}\n\n`;
+      });
+
+      bot.sendMessage(chatId, textOut.trim());
+      return;
     }
 
-    let text = "📋 لیست هزینه‌ها:\n\n";
-    for (const c of session.costs) {
-      text += `💳 پرداخت‌کننده: ${c.payer}\n📌 دلیل: ${
-        c.reason
-      }\n💰 مبلغ: ${c.amount.toLocaleString()} تومان\n👥 استفاده‌کننده‌ها: ${c.users.join(
-        "، "
-      )}\n\n`;
+    if (textRaw === "✏️ ویرایش هزینه") {
+      if (!session.costs.length) {
+        return bot.sendMessage(chatId, "هیچ هزینه‌ای برای ویرایش ثبت نشده.");
+      }
+      session.step = "waiting_edit_index";
+      bot.sendMessage(
+        chatId,
+        "شماره هزینه‌ای که می‌خوای ویرایش کنی رو وارد کن:"
+      );
+      return;
+    }
+  }
+
+  // مرحله گرفتن شماره هزینه برای ویرایش
+  if (session.step === "waiting_edit_index") {
+    const idx = parseInt(text) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= session.costs.length) {
+      return bot.sendMessage(chatId, "شماره نامعتبره، دوباره وارد کن:");
     }
 
-    bot.sendMessage(chatId, text.trim());
-    return;
+    session.editingIndex = idx;
+    session.step = "editing_cost";
+
+    bot.sendMessage(
+      chatId,
+      `حالا هزینه جدید رو با فرمت زیر وارد کن:\nنام پرداخت‌کننده - دلیل - مقدار پرداختی - استفاده‌کننده‌ها\nمثال:\nشایان-شام-10000-امیر-کسرا-شایان-شاهین`
+    );
   }
 });
 
