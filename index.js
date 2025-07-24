@@ -2,20 +2,18 @@ const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const app = express();
 
-const token = "8344521445:AAEQOldx12LoMOji6YfC91omb058bN5t-MY";
+const token = "توکن_ربات_تو"; // اینجا توکن خودتو بذار
 const bot = new TelegramBot(token);
-
 const url = "https://dongbot-1.onrender.com";
 bot.setWebHook(`${url}/bot${token}`);
 
 app.use(express.json());
-
 app.post(`/bot${token}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ذخیره اطلاعات هر چت اینجا
+// ذخیره اطلاعات هر چت
 const chats = {};
 
 bot.onText(/\/start/, (msg) => {
@@ -29,13 +27,12 @@ bot.onText(/\/start/, (msg) => {
 
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
-  if (!chats[chatId]) return; // اگر start نزده بودن کاری نکن
+  if (!chats[chatId]) return;
 
   const text = msg.text;
 
   switch (chats[chatId].step) {
     case "welcome":
-      // گرفتن تعداد نفرات
       const count = parseInt(text);
       if (isNaN(count) || count <= 0) {
         bot.sendMessage(chatId, "تعداد نفرات معتبر نیست، لطفاً عدد وارد کن.");
@@ -46,7 +43,7 @@ bot.on("message", (msg) => {
       chats[chatId].step = "get_names";
       bot.sendMessage(
         chatId,
-        `تعداد ${count} نفر هستن، لطفاً اسم نفر اول رو وارد کن.`
+        `تعداد ${count} نفر هستن. اسم نفر اول رو وارد کن.`
       );
       break;
 
@@ -60,118 +57,119 @@ bot.on("message", (msg) => {
           })`
         );
       } else {
-        chats[chatId].step = "get_mom_payer";
+        chats[chatId].step = "get_expenses";
+        chats[chatId].expenses = [];
         bot.sendMessage(chatId, `اسم افراد: ${chats[chatId].names.join(", ")}`);
+        bot.sendMessage(chatId, "الان هزینه‌ها رو وارد کن.");
         bot.sendMessage(
           chatId,
-          "حالا بگو کی مادرخرج بوده؟ (اسم یکی از افراد رو وارد کن)"
+          "فرمت: 100000, غذا, علی، رضا | پرداخت‌کننده: رضا"
         );
+        bot.sendMessage(chatId, "برای پایان دادن بنویس: پایان");
       }
-      break;
-
-    case "get_mom_payer":
-      if (!chats[chatId].names.includes(text)) {
-        bot.sendMessage(
-          chatId,
-          "اسم وارد شده جزو افراد نیست، لطفاً از لیست بالا یکی رو انتخاب کن."
-        );
-        return;
-      }
-      chats[chatId].mom = text;
-      chats[chatId].step = "get_expenses";
-      chats[chatId].expenses = [];
-      bot.sendMessage(chatId, "حالا هزینه‌ها رو به ترتیب بفرست.");
-      bot.sendMessage(
-        chatId,
-        "مثال: مقدار هزینه، دلیل هزینه، و اسم افراد سهم‌بَر (مثلاً به صورت کاما جدا)."
-      );
-      bot.sendMessage(chatId, `فرمت: 100000, غذا, علی، رضا، زهرا`);
-      bot.sendMessage(chatId, "برای پایان دادن بنویس: پایان");
       break;
 
     case "get_expenses":
       if (text.trim() === "پایان") {
-        // محاسبه سهم ها
+        // محاسبه سهم‌ها
         const shares = {};
+        const paid = {};
+
         chats[chatId].names.forEach((name) => {
           shares[name] = 0;
+          paid[name] = 0;
         });
 
         chats[chatId].expenses.forEach((exp) => {
-          const perPerson = exp.amount / exp.people.length;
-          exp.people.forEach((p) => {
-            if (p !== chats[chatId].mom) {
-              shares[p] += perPerson;
-            }
+          const perPerson = exp.amount / exp.users.length;
+
+          exp.users.forEach((user) => {
+            shares[user] += perPerson;
+          });
+
+          exp.payers.forEach((payer) => {
+            paid[payer] += exp.amount / exp.payers.length;
           });
         });
 
-        let result = "سهم هر نفر که باید به مادرخرج بده:\n";
-        for (const [name, share] of Object.entries(shares)) {
-          if (name !== chats[chatId].mom) {
-            result += `${name}: ${share.toFixed(0)} تومان\n`;
+        // محاسبه نهایی
+        let result = "📊 نتیجه نهایی:\n";
+        chats[chatId].names.forEach((name) => {
+          const diff = shares[name] - paid[name];
+          if (diff > 0) {
+            result += `💸 ${name} باید ${diff.toFixed(0)} تومان پرداخت کنه.\n`;
+          } else if (diff < 0) {
+            result += `💰 ${name} باید ${Math.abs(diff).toFixed(
+              0
+            )} تومان دریافت کنه.\n`;
+          } else {
+            result += `✅ ${name} تسویه کرده.\n`;
           }
-        }
+        });
 
         bot.sendMessage(chatId, result);
         chats[chatId].step = "done";
         return;
       }
 
-      // پارس کردن ورودی هزینه
-      // فرض شده ورودی به شکل: مقدار, دلیل, اسم1، اسم2، اسم3
-      const parts = text.split(",");
-      if (parts.length < 3) {
+      const [expensePart, payerPart] = text.split("|");
+
+      if (!payerPart || !expensePart) {
         bot.sendMessage(
           chatId,
-          "فرمت هزینه اشتباهه. لطفاً به شکل: مقدار, دلیل, اسم‌ها"
+          "❌ فرمت اشتباهه. فرمت درست: 120000, دلیل, اسم‌ها | پرداخت‌کننده: اسم‌ها"
         );
         return;
       }
-      const amount = parseFloat(parts[0].trim());
-      const reason = parts[1].trim();
-      const peopleText = parts.slice(2).join(",").trim();
-      const people = peopleText.split(/،|,/).map((s) => s.trim());
 
-      // بررسی افراد وارد شده
-      for (const p of people) {
-        if (!chats[chatId].names.includes(p)) {
-          bot.sendMessage(
-            chatId,
-            `اسم "${p}" جزو افراد نیست، لطفاً دوباره وارد کن.`
-          );
+      const expParts = expensePart.split(",");
+      if (expParts.length < 3) {
+        bot.sendMessage(
+          chatId,
+          "❌ لطفاً مقدار، دلیل و افراد استفاده‌کننده رو مشخص کن."
+        );
+        return;
+      }
+
+      const amount = parseFloat(expParts[0].trim());
+      const reason = expParts[1].trim();
+      const people = expParts
+        .slice(2)
+        .join(",")
+        .split(/،|,/)
+        .map((p) => p.trim());
+
+      const payerRaw = payerPart.replace(/پرداخت‌کننده:/, "").trim();
+      const payers = payerRaw.split(/،|,/).map((p) => p.trim());
+
+      // اعتبارسنجی
+      for (const name of [...people, ...payers]) {
+        if (!chats[chatId].names.includes(name)) {
+          bot.sendMessage(chatId, `❌ اسم "${name}" توی لیست افراد نیست.`);
           return;
         }
       }
 
       if (isNaN(amount) || amount <= 0) {
-        bot.sendMessage(
-          chatId,
-          "مقدار هزینه معتبر نیست، لطفاً دوباره وارد کن."
-        );
+        bot.sendMessage(chatId, "❌ مبلغ معتبر نیست.");
         return;
       }
 
-      chats[chatId].expenses.push({
-        amount,
-        reason,
-        people,
-      });
-
+      chats[chatId].expenses.push({ amount, reason, users: people, payers });
       bot.sendMessage(
         chatId,
-        `هزینه ثبت شد: ${amount} تومان برای ${reason}، سهم‌بَر: ${people.join(
-          ", "
-        )}`
+        `✅ هزینه "${reason}" به مبلغ ${amount} ثبت شد.\n👥 استفاده‌کننده‌ها: ${people.join(
+          "، "
+        )}\n💳 پرداخت‌کننده‌ها: ${payers.join("، ")}`
       );
       bot.sendMessage(
         chatId,
-        "اگر هزینه‌های بیشتری داری بنویس، در غیر اینصورت 'پایان' رو بفرست."
+        "اگه هزینه دیگه‌ای داری بفرست، اگه تموم شد بنویس: پایان"
       );
       break;
 
     case "done":
-      bot.sendMessage(chatId, "اگر می‌خوای دوباره شروع کنی /start بزن.");
+      bot.sendMessage(chatId, "اگه می‌خوای دوباره شروع کنی /start رو بفرست.");
       break;
   }
 });
