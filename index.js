@@ -110,14 +110,7 @@ bot.on("message", (msg) => {
       users,
     });
 
-    bot.sendMessage(
-      chatId,
-      `✅ هزینه ثبت شد:
-💳 پرداخت‌کننده: ${payer}
-📌 دلیل: ${reason}
-💰 مبلغ: ${amount}
-👥 استفاده‌کننده‌ها: ${consumers.join("، ")}`
-    );
+    bot.sendMessage(chatId, `✅ ثبت شد. هزینه‌ی "${reason}" توسط ${payer}`);
     return;
   }
 });
